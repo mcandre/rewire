@@ -2,6 +2,7 @@ var vm = require("vm"),
     fs = require("fs"),
     expect = require("expect.js"),
     webpack = require("webpack"),
+    path = require("path"),
     configureWebpack = require("../lib/bundlers/webpack/configureWebpack.js");
 
 /**
@@ -24,6 +25,10 @@ function runInFakeBrowserContext(src, filename) {
         parseInt: parseInt,
         encodeURIComponent: function () {},
         decodeURIComponent: function () {},
+        location: {
+            origin: "http://localhost",
+            pathname: "/"
+        },
         document: {},
         console: console,
         testEnv: "webpack"
@@ -36,34 +41,42 @@ describe("rewire bundled with webpack", function () {
     before(require("./testHelpers/createFakePackageJSON.js"));
     after(require("./testHelpers/removeFakePackageJSON.js"));
     it("should run all sharedTestCases without exception", function (done) {
-        var webpackOptions,
+        var outputDir = path.join(__dirname, "bundlers", "webpack"),
+            bundleFile = path.join(outputDir, "bundle.js"),
+            webpackOptions,
             src,
-            outputPath =  __dirname + "/bundlers/webpack/bundle.js",
             browserBundle;
 
         webpackOptions = {
-            output: outputPath,
-            includeFilenames: true,
+            context: path.join(__dirname, "testModules"),
+            entry: "./sharedTestCases.js",
+            output: {
+                path: outputDir
+            },
             debug: true
         };
         configureWebpack(webpackOptions);
 
-        webpack(__dirname + "/testModules/sharedTestCases.js", webpackOptions, function onWebpackFinished(err, stats) {
+        try {
+            fs.unlinkSync(bundleFile);
+        } catch (err) { }
+
+        webpack(webpackOptions, function onWebpackFinished(err, stats) {
             expect(err).to.be(null);
-            expect(stats.errors).to.have.length(0);
-            expect(stats.warnings).to.have.length(0);
+            expect(stats.compilation.errors).to.have.length(0);
+            expect(stats.compilation.warnings).to.have.length(0);
 
             // Read generated source
-            src = fs.readFileSync(outputPath, "utf8");
+            src = fs.readFileSync(bundleFile, "utf8");
 
             // Setup for mocha
             browserBundle = "function enableTests() { " + src + " }";
 
             // Output for browser-testing
-            fs.writeFileSync(outputPath, browserBundle, "utf8");
+            fs.writeFileSync(bundleFile, browserBundle, "utf8");
 
             // This should throw no exception.
-            runInFakeBrowserContext(src, outputPath);
+            runInFakeBrowserContext(src, bundleFile);
 
             done();
         });
